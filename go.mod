@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	cloud.google.com/go/datastore v1.8.0
+	github.com/google/uuid v1.3.0
 	github.com/stretchr/testify v1.7.0
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
 	google.golang.org/api v0.84.0
@@ -16,7 +17,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
-	github.com/google/uuid v1.3.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.0.0-20220520183353-fd19c99a87aa // indirect
 	github.com/googleapis/gax-go/v2 v2.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
