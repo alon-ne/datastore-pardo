@@ -1,1 +1,1 @@
-gcloud beta emulators datastore start --project dspardo &
+gcloud beta emulators datastore start --project dspardo --use-firestore-in-datastore-mode --no-store-on-disk &

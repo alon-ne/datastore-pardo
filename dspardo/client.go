@@ -32,8 +32,11 @@ func New(dsClient *datastore.Client, numWorkers, batchSize int) *Client {
 func (c *Client) Count(ctx context.Context, query *datastore.Query) (count int, err error) {
 	var count64 int64
 	err = c.ParDoKeysWithProgress(ctx, query,
-		func(_ context.Context, _ int, _ []*datastore.Key) error { return nil },
-		func(ctx context.Context, processed int) { atomic.StoreInt64(&count64, int64(processed)) },
+		func(_ context.Context, _ int, keys []*datastore.Key) error {
+			atomic.AddInt64(&count64, int64(len(keys)))
+			return nil
+		},
+		func(ctx context.Context, processed int) {},
 	)
 	count = int(count64)
 	return
@@ -44,53 +47,18 @@ func (c *Client) ParDoKeysWithProgress(ctx context.Context, query *datastore.Que
 	var errGroup errgroup.Group
 
 	batches := c.startWorkers(ctx, &errGroup, do, progress)
+	err = c.sendBatches(ctx, query, batches)
+	close(batches)
 
-	defer func() {
-		close(batches)
-		workersErr := errGroup.Wait()
-		if errors.Is(err, iterator.Done) {
-			err = nil
-		}
-		if err == nil {
-			err = workersErr
-		}
-	}()
-
-	return c.sendBatches(ctx, query, batches)
-}
-
-func (c *Client) sendBatches(ctx context.Context, query *datastore.Query, batches chan []*datastore.Key) (err error) {
-	query = query.KeysOnly()
-	it := c.Client.Run(ctx, query)
-	keys := c.makeKeys()
-
-	for err == nil {
-		var key *datastore.Key
-		key, err = it.Next(nil)
-
-		batchSize := c.batchSize
-		if err == nil {
-			keys = append(keys, key)
-		} else if errors.Is(err, iterator.Done) {
-			batchSize = len(keys)
-		}
-
-		if len(keys) < batchSize {
-			continue
-		}
-
-		batch := make([]*datastore.Key, len(keys))
-		copy(batch, keys)
-		keys = c.makeKeys()
-
-		select {
-		case batches <- batch:
-		case <-ctx.Done():
-			if err == nil {
-				err = ctx.Err()
-			}
-		}
+	workersErr := errGroup.Wait()
+	if errors.Is(err, iterator.Done) {
+		err = nil
 	}
+
+	if err == nil {
+		err = workersErr
+	}
+
 	return
 }
 
@@ -117,6 +85,38 @@ func (c *Client) startWorkers(ctx context.Context, errGroup *errgroup.Group, do 
 		})
 	}
 	return batches
+}
+
+func (c *Client) sendBatches(ctx context.Context, query *datastore.Query, batches chan []*datastore.Key) (err error) {
+	query = query.KeysOnly()
+	it := c.Client.Run(ctx, query)
+	keys := c.makeKeys()
+
+	for err == nil {
+		var key *datastore.Key
+		key, err = it.Next(nil)
+
+		batchSize := c.batchSize
+		if err == nil {
+			keys = append(keys, key)
+		} else if errors.Is(err, iterator.Done) {
+			batchSize = len(keys)
+		}
+
+		if len(keys) < batchSize {
+			continue
+		}
+
+		select {
+		case batches <- keys:
+			keys = c.makeKeys()
+		case <-ctx.Done():
+			if err == nil {
+				err = ctx.Err()
+			}
+		}
+	}
+	return
 }
 
 func (c *Client) makeKeys() []*datastore.Key {
