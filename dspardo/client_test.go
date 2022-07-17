@@ -3,8 +3,8 @@ package dspardo
 import (
 	"cloud.google.com/go/datastore"
 	"context"
-	"datastore-pardo/lang"
 	"fmt"
+	"github.com/alon-ne/datastore-pardo/lang"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,10 +46,11 @@ func TestMain(m *testing.M) {
 }
 
 func Test_Count(t *testing.T) {
-	batchSize := 1000
-	numWorkers := 4
 	ctx := context.Background()
-	client := NewWithBatchSize(dsClient, numWorkers, batchSize)
+	numWorkers := 4
+	batchSize := 1000
+
+	client := New(dsClient, numWorkers, batchSize)
 	count, err := client.Count(ctx, testEntitiesQuery())
 	require.NoError(t, err)
 	assert.Equal(t, count, numEntities)
@@ -57,13 +58,12 @@ func Test_Count(t *testing.T) {
 
 func Test_ParDoKeysWithProgress(t *testing.T) {
 	ctx := context.Background()
-
-	batchSize := 1000
 	numWorkers := 4
+	batchSize := 1000
 
 	var totalProcessed int64
 	workerKeys := make([][]*datastore.Key, numWorkers)
-	client := NewWithBatchSize(dsClient, numWorkers, batchSize)
+	client := New(dsClient, numWorkers, batchSize)
 	err := client.ParDoKeysWithProgress(
 		ctx,
 		datastore.NewQuery(kind),

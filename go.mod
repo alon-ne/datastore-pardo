@@ -1,4 +1,4 @@
-module datastore-pardo
+module github.com/alon-ne/datastore-pardo
 
 go 1.18
 

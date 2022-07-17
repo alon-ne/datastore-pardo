@@ -13,7 +13,7 @@ type ParDoKeysFunc func(ctx context.Context, worker int, keys []*datastore.Key) 
 type ParDoEntitiesFunc func(ctx context.Context, worker int, entities []datastore.PropertyList) error
 type ProgressCallback func(ctx context.Context, processed int)
 
-const DatastoreMaxBatchSize = 500
+const DatastorePutMaxBatchSize = 500
 
 type Client struct {
 	*datastore.Client
@@ -21,7 +21,7 @@ type Client struct {
 	batchSize  int
 }
 
-func NewWithBatchSize(dsClient *datastore.Client, numWorkers, batchSize int) *Client {
+func New(dsClient *datastore.Client, numWorkers, batchSize int) *Client {
 	return &Client{
 		Client:     dsClient,
 		numWorkers: numWorkers,
