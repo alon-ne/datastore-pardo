@@ -31,7 +31,7 @@ func New(dsClient *datastore.Client, numWorkers, batchSize int) *Client {
 
 func (c *Client) Count(ctx context.Context, query *datastore.Query) (count int, err error) {
 	var count64 int64
-	err = c.ParDoKeysWithProgress(ctx, query,
+	err = c.ParDoQuery(ctx, query,
 		func(_ context.Context, _ int, keys []*datastore.Key) error {
 			atomic.AddInt64(&count64, int64(len(keys)))
 			return nil
@@ -42,7 +42,7 @@ func (c *Client) Count(ctx context.Context, query *datastore.Query) (count int, 
 	return
 }
 
-func (c *Client) ParDoKeysWithProgress(ctx context.Context, query *datastore.Query,
+func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,
 	do ParDoKeysFunc, progress ProgressCallback) (err error) {
 	var errGroup errgroup.Group
 

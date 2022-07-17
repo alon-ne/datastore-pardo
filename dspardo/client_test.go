@@ -65,7 +65,7 @@ func Test_ParDoKeysWithProgress(t *testing.T) {
 	var totalProcessed int64
 	workerKeys := make([][]*datastore.Key, numWorkers)
 	client := New(dsClient, numWorkers, batchSize)
-	err := client.ParDoKeysWithProgress(
+	err := client.ParDoQuery(
 		ctx,
 		datastore.NewQuery(kind),
 		func(ctx context.Context, worker int, keys []*datastore.Key) error {
