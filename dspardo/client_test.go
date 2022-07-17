@@ -25,6 +25,7 @@ const (
 
 var ancestorKey = datastore.NameKey(ancestor, ancestor, nil)
 var testEntityKeys []*datastore.Key
+var datastoreEmulatorHost = os.Getenv("DATASTORE_EMULATOR_HOST")
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -32,7 +33,7 @@ func TestMain(m *testing.M) {
 	dsClient, err = datastore.NewClient(ctx, "dspardo")
 	lang.PanicOnError(err)
 
-	resp, err := http.Post("http://"+os.Getenv("DATASTORE_EMULATOR_HOST")+"/reset", "", nil)
+	resp, err := http.Post("http://"+datastoreEmulatorHost+"/reset", "", nil)
 	lang.PanicOnError(err)
 	if resp.StatusCode != http.StatusOK {
 		panic("response from datastore emulator: " + resp.Status)
