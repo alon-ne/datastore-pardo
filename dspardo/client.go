@@ -43,8 +43,6 @@ func (c *Client) Count(ctx context.Context, query *datastore.Query) (count int, 
 	return
 }
 
-//func (c *Client) ParDoGetMulti(ctx context.Context, keys *[]datastore.Key)
-
 func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, progressFormat string) error {
 	return c.ParDoQuery(ctx, query,
 		func(ctx context.Context, worker int, keys []*datastore.Key) error {

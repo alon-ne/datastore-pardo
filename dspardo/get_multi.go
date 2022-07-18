@@ -8,14 +8,32 @@ import (
 
 func ParDoGetMulti[T interface{}](
 	ctx context.Context,
-	c *Client,
+	client *Client,
 	keys []*datastore.Key,
 	do func(ctx context.Context, worker int, entities []T) error,
-) error {
-	consumers, keyBatches := startConsumers(ctx, c, do)
-	keyBatches, err := sendBatches(ctx, c, keys, keyBatches)
 
-	close(keyBatches)
+) error {
+	return (&parDoGetMulti[T]{
+		client:     client,
+		keys:       keys,
+		do:         do,
+		keyBatches: make(chan []*datastore.Key, client.numWorkers),
+	}).run(ctx)
+}
+
+type parDoGetMulti[T interface{}] struct {
+	client *Client
+	keys   []*datastore.Key
+	do     func(ctx context.Context, worker int, entities []T) error
+
+	keyBatches chan []*datastore.Key
+}
+
+func (p *parDoGetMulti[T]) run(ctx context.Context) error {
+	consumers := p.startConsumers(ctx)
+	err := p.sendBatches(ctx)
+
+	close(p.keyBatches)
 	if err != nil {
 		return err
 	}
@@ -27,46 +45,41 @@ func ParDoGetMulti[T interface{}](
 	return nil
 }
 
-func sendBatches(ctx context.Context, c *Client, keys []*datastore.Key, keyBatches chan []*datastore.Key) (chan []*datastore.Key, error) {
-	var err error
-	batchSize := c.batchSize
-	for offset := 0; offset < len(keys) && err == nil; offset += batchSize {
-		remaining := len(keys) - offset
-		if batchSize > remaining {
-			batchSize = remaining
-		}
-
-		select {
-		case keyBatches <- keys[offset : offset+batchSize]:
-		case <-ctx.Done():
-			err = ctx.Err()
-		}
-	}
-	return keyBatches, err
-}
-
-func startConsumers[T interface{}](
-	ctx context.Context,
-	c *Client,
-	do func(ctx context.Context, worker int, entities []T) error,
-) (*errgroup.Group, chan []*datastore.Key) {
+func (p *parDoGetMulti[T]) startConsumers(ctx context.Context) *errgroup.Group {
 	var consumers errgroup.Group
-	keyBatches := make(chan []*datastore.Key, c.numWorkers)
-	for i := 0; i < c.numWorkers; i++ {
+	for i := 0; i < p.client.numWorkers; i++ {
 		worker := i
 		consumers.Go(func() error {
-			for keyBatch := range keyBatches {
+			for keyBatch := range p.keyBatches {
 				entitiesBatch := make([]T, len(keyBatch))
-				if err := c.GetMulti(ctx, keyBatch, entitiesBatch); err != nil {
+				if err := p.client.GetMulti(ctx, keyBatch, entitiesBatch); err != nil {
 					return err
 				}
 
-				if err := do(ctx, worker, entitiesBatch); err != nil {
+				if err := p.do(ctx, worker, entitiesBatch); err != nil {
 					return err
 				}
 			}
 			return nil
 		})
 	}
-	return &consumers, keyBatches
+	return &consumers
+}
+
+func (p *parDoGetMulti[T]) sendBatches(ctx context.Context) error {
+	var err error
+	batchSize := p.client.batchSize
+	for offset := 0; offset < len(p.keys) && err == nil; offset += batchSize {
+		remaining := len(p.keys) - offset
+		if batchSize > remaining {
+			batchSize = remaining
+		}
+
+		select {
+		case p.keyBatches <- p.keys[offset : offset+batchSize]:
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
+	}
+	return err
 }
