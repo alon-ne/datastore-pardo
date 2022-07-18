@@ -51,12 +51,50 @@ func ParDoGetMulti[T interface{}](
 	keys []*datastore.Key,
 	do func(ctx context.Context, worker int, entities []T) error,
 ) error {
-	entities := make([]T, len(keys))
-	err := c.GetMulti(ctx, keys, entities)
+	var consumers errgroup.Group
+	keyBatches := make(chan []*datastore.Key, c.numWorkers)
+	for i := 0; i < c.numWorkers; i++ {
+		worker := i
+		consumers.Go(func() error {
+			for keyBatch := range keyBatches {
+				entitiesBatch := make([]T, len(keyBatch))
+				if err := c.GetMulti(ctx, keyBatch, entitiesBatch); err != nil {
+					return err
+				}
+
+				if err := do(ctx, worker, entitiesBatch); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+
+	var err error
+	batchSize := c.batchSize
+	for offset := 0; offset < len(keys) && err == nil; offset += batchSize {
+		remaining := len(keys) - offset
+		if batchSize > remaining {
+			batchSize = remaining
+		}
+
+		select {
+		case keyBatches <- keys[offset : offset+batchSize]:
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
+	}
+
+	close(keyBatches)
 	if err != nil {
 		return err
 	}
-	return do(ctx, 0, entities)
+
+	if err = consumers.Wait(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, progressFormat string) error {

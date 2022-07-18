@@ -54,7 +54,7 @@ func TestMain(m *testing.M) {
 func Test_Count(t *testing.T) {
 	ctx := context.Background()
 	numWorkers := 4
-	batchSize := 1000
+	batchSize := 100
 
 	client := New(dsClient, numWorkers, batchSize)
 	count, err := client.Count(ctx, testEntitiesQuery())
@@ -64,12 +64,12 @@ func Test_Count(t *testing.T) {
 
 func Test_ParDoGetMulti(t *testing.T) {
 	ctx := context.Background()
-	numWorkers := 4
-	batchSize := 30
+	numWorkers := 16
+	batchSize := 100
 
 	client := New(dsClient, numWorkers, batchSize)
 
-	keys, err := dsClient.GetAll(ctx, testEntitiesQuery().Limit(200), nil)
+	keys, err := dsClient.GetAll(ctx, testEntitiesQuery(), nil)
 	require.NoError(t, err)
 	var sum int64
 	err = ParDoGetMulti(ctx, client, keys, func(ctx context.Context, worker int, entities []Entity) error {
@@ -79,7 +79,7 @@ func Test_ParDoGetMulti(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	assert.EqualValues(t, 200, sum)
+	assert.EqualValues(t, numEntities, sum)
 }
 
 func Test_ParDoQuery(t *testing.T) {
