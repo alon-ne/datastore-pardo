@@ -4,6 +4,7 @@ import (
 	"cloud.google.com/go/datastore"
 	"context"
 	"errors"
+	"fmt"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
 	"sync/atomic"
@@ -40,6 +41,35 @@ func (c *Client) Count(ctx context.Context, query *datastore.Query) (count int, 
 	)
 	count = int(count64)
 	return
+}
+
+//func (c *Client) ParDoGetMulti(ctx context.Context, keys *[]datastore.Key)
+
+func ParDoGetMulti[T interface{}](
+	ctx context.Context,
+	c *Client,
+	keys []*datastore.Key,
+	do func(ctx context.Context, worker int, entities []T) error,
+) error {
+	entities := make([]T, len(keys))
+	err := c.GetMulti(ctx, keys, entities)
+	if err != nil {
+		return err
+	}
+	return do(ctx, 0, entities)
+}
+
+func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, progressFormat string) error {
+	return c.ParDoQuery(ctx, query,
+		func(ctx context.Context, worker int, keys []*datastore.Key) error {
+			return c.DeleteMulti(ctx, keys)
+		},
+		func(_ context.Context, processed int) {
+			if progressFormat != "" {
+				fmt.Printf(progressFormat+"\n", processed)
+			}
+		},
+	)
 }
 
 func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,

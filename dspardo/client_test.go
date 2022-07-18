@@ -27,6 +27,11 @@ var ancestorKey = datastore.NameKey(ancestor, ancestor, nil)
 var testEntityKeys []*datastore.Key
 var datastoreEmulatorHost = os.Getenv("DATASTORE_EMULATOR_HOST")
 
+type Entity struct {
+	N int    `datastore:"n"`
+	S string `datastore:"s"`
+}
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	var err error
@@ -57,7 +62,27 @@ func Test_Count(t *testing.T) {
 	assert.Equal(t, count, numEntities)
 }
 
-func Test_ParDoKeysWithProgress(t *testing.T) {
+func Test_ParDoGetMulti(t *testing.T) {
+	ctx := context.Background()
+	numWorkers := 4
+	batchSize := 30
+
+	client := New(dsClient, numWorkers, batchSize)
+
+	keys, err := dsClient.GetAll(ctx, testEntitiesQuery().Limit(200), nil)
+	require.NoError(t, err)
+	var sum int64
+	err = ParDoGetMulti(ctx, client, keys, func(ctx context.Context, worker int, entities []Entity) error {
+		for _, entity := range entities {
+			atomic.AddInt64(&sum, int64(entity.N))
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 200, sum)
+}
+
+func Test_ParDoQuery(t *testing.T) {
 	ctx := context.Background()
 	numWorkers := 4
 	batchSize := 1000
@@ -122,12 +147,12 @@ func testEntitiesQuery() *datastore.Query {
 
 func putTestEntities(numEntities int, ctx context.Context) (allKeys []*datastore.Key) {
 	fmt.Printf("Creating test entities...\n")
-	var entities []datastore.PropertyList
+	var entities []Entity
 	var keys []*datastore.Key
 
 	for i := 0; i < numEntities; i++ {
 		keys = append(keys, testKey())
-		entities = append(entities, datastore.PropertyList{})
+		entities = append(entities, Entity{N: 1, S: "text"})
 		if len(keys) == 500 || i == numEntities-1 {
 			fmt.Printf("Putting %v test entities...\n", len(keys))
 			_, err := dsClient.PutMulti(ctx, keys, entities)
