@@ -64,21 +64,27 @@ func Test_Count(t *testing.T) {
 
 func Test_ParDoGetMulti(t *testing.T) {
 	ctx := context.Background()
-	numWorkers := 16
-	batchSize := 100
+	numWorkers := 4
+	batchSize := 79
 
 	client := New(dsClient, numWorkers, batchSize)
 
 	keys, err := dsClient.GetAll(ctx, testEntitiesQuery(), nil)
 	require.NoError(t, err)
-	var sum int64
+	shards := make([]int, numWorkers)
+
 	err = ParDoGetMulti(ctx, client, keys, func(ctx context.Context, worker int, entities []Entity) error {
+		fmt.Printf("Worker %v got %v entities\n", worker, len(entities))
 		for _, entity := range entities {
-			atomic.AddInt64(&sum, int64(entity.N))
+			shards[worker] += entity.N
 		}
 		return nil
 	})
 	require.NoError(t, err)
+	var sum int
+	for _, shard := range shards {
+		sum += shard
+	}
 	assert.EqualValues(t, numEntities, sum)
 }
 
