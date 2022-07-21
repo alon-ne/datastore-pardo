@@ -109,7 +109,7 @@ func (c *Client) sendBatches(ctx context.Context, errGroup *errgroup.Group, quer
 				batchSize = len(keys)
 			}
 
-			if len(keys) < batchSize {
+			if len(keys) < batchSize || batchSize == 0 {
 				continue
 			}
 
