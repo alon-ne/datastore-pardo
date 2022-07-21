@@ -88,11 +88,15 @@ func Test_ParDoGetMulti(t *testing.T) {
 	assert.EqualValues(t, numEntities, sum)
 }
 
-func Test_ParDoQuery(t *testing.T) {
-	ctx := context.Background()
-	numWorkers := 4
-	batchSize := 1000
+func Test_ParDoQuery_4_workers_1000_batch(t *testing.T) {
+	testParDoQuery(t, context.Background(), 4, 1000)
+}
 
+func Test_ParDoQuery_1_worker_1000_batch(t *testing.T) {
+	testParDoQuery(t, context.Background(), 1, 1000)
+}
+
+func testParDoQuery(t *testing.T, ctx context.Context, numWorkers int, batchSize int) {
 	var totalProcessed int64
 	workerKeys := make([][]*datastore.Key, numWorkers)
 	client := New(dsClient, numWorkers, batchSize)
@@ -116,8 +120,7 @@ func Test_ParDoQuery(t *testing.T) {
 	}
 	assert.EqualValues(t, numEntities, totalProcessed)
 	assert.Equal(t, len(testEntityKeys), len(allWorkerKeys))
-	//assert.ElementsMatch(t, testEntityKeys, allWorkerKeys)
-
+	assert.ElementsMatch(t, testEntityKeys, allWorkerKeys)
 }
 
 func deleteTestEntities(ctx context.Context) {

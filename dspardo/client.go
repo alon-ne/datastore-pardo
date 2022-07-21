@@ -57,23 +57,13 @@ func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, prog
 }
 
 func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,
-	do ParDoKeysFunc, progress ProgressCallback) (err error) {
-	var errGroup errgroup.Group
+	do ParDoKeysFunc, progress ProgressCallback) error {
+	errGroup, errCtx := errgroup.WithContext(ctx)
 
-	batches := c.startWorkers(ctx, &errGroup, do, progress)
-	err = c.sendBatches(ctx, query, batches)
-	close(batches)
+	batches := c.startWorkers(ctx, errGroup, do, progress)
+	c.sendBatches(errCtx, errGroup, query, batches)
 
-	workersErr := errGroup.Wait()
-	if errors.Is(err, iterator.Done) {
-		err = nil
-	}
-
-	if err == nil {
-		err = workersErr
-	}
-
-	return
+	return errGroup.Wait()
 }
 
 func (c *Client) startWorkers(ctx context.Context, errGroup *errgroup.Group, do ParDoKeysFunc, progress ProgressCallback) chan []*datastore.Key {
@@ -101,36 +91,45 @@ func (c *Client) startWorkers(ctx context.Context, errGroup *errgroup.Group, do 
 	return batches
 }
 
-func (c *Client) sendBatches(ctx context.Context, query *datastore.Query, batches chan []*datastore.Key) (err error) {
+func (c *Client) sendBatches(ctx context.Context, errGroup *errgroup.Group, query *datastore.Query, batches chan []*datastore.Key) {
 	query = query.KeysOnly()
-	it := c.Client.Run(ctx, query)
-	keys := c.makeKeys()
 
-	for err == nil {
-		var key *datastore.Key
-		key, err = it.Next(nil)
+	errGroup.Go(func() (err error) {
+		it := c.Client.Run(ctx, query)
+		keys := c.makeKeys()
 
-		batchSize := c.batchSize
-		if err == nil {
-			keys = append(keys, key)
-		} else if errors.Is(err, iterator.Done) {
-			batchSize = len(keys)
-		}
+		for err == nil {
+			var key *datastore.Key
+			key, err = it.Next(nil)
 
-		if len(keys) < batchSize {
-			continue
-		}
-
-		select {
-		case batches <- keys:
-			keys = c.makeKeys()
-		case <-ctx.Done():
+			batchSize := c.batchSize
 			if err == nil {
-				err = ctx.Err()
+				keys = append(keys, key)
+			} else if errors.Is(err, iterator.Done) {
+				batchSize = len(keys)
+			}
+
+			if len(keys) < batchSize {
+				continue
+			}
+
+			select {
+			case batches <- keys:
+				keys = c.makeKeys()
+			case <-ctx.Done():
+				if err == nil {
+					err = ctx.Err()
+				}
 			}
 		}
-	}
-	return
+		close(batches)
+		if errors.Is(err, iterator.Done) {
+			err = nil
+		}
+
+		return
+	})
+
 }
 
 func (c *Client) makeKeys() []*datastore.Key {
