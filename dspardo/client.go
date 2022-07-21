@@ -60,15 +60,14 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,
 	do ParDoKeysFunc, progress ProgressCallback) error {
 	errGroup, errCtx := errgroup.WithContext(ctx)
 
-	batches := c.startWorkers(ctx, errGroup, do, progress)
-	c.sendBatches(errCtx, errGroup, query, batches)
+	batches := c.sendBatches(errCtx, errGroup, query)
+	c.startWorkers(ctx, errGroup, do, progress, batches)
 
 	return errGroup.Wait()
 }
 
-func (c *Client) startWorkers(ctx context.Context, errGroup *errgroup.Group, do ParDoKeysFunc, progress ProgressCallback) chan []*datastore.Key {
+func (c *Client) startWorkers(ctx context.Context, errGroup *errgroup.Group, do ParDoKeysFunc, progress ProgressCallback, batches chan []*datastore.Key) {
 	var entitiesProcessed int64
-	batches := make(chan []*datastore.Key, c.numWorkers)
 	for i := 0; i < c.numWorkers; i++ {
 		worker := i
 		errGroup.Go(func() error {
@@ -88,10 +87,11 @@ func (c *Client) startWorkers(ctx context.Context, errGroup *errgroup.Group, do 
 			return nil
 		})
 	}
-	return batches
+
 }
 
-func (c *Client) sendBatches(ctx context.Context, errGroup *errgroup.Group, query *datastore.Query, batches chan []*datastore.Key) {
+func (c *Client) sendBatches(ctx context.Context, errGroup *errgroup.Group, query *datastore.Query) (batches chan []*datastore.Key) {
+	batches = make(chan []*datastore.Key, c.numWorkers)
 	query = query.KeysOnly()
 
 	errGroup.Go(func() (err error) {
@@ -129,7 +129,7 @@ func (c *Client) sendBatches(ctx context.Context, errGroup *errgroup.Group, quer
 
 		return
 	})
-
+	return
 }
 
 func (c *Client) makeKeys() []*datastore.Key {
