@@ -91,7 +91,12 @@ func (c *Client) startWorkers(ctx context.Context, errGroup *errgroup.Group, do 
 }
 
 func (c *Client) sendBatches(ctx context.Context, errGroup *errgroup.Group, query *datastore.Query) (batches chan []*datastore.Key) {
-	batches = make(chan []*datastore.Key, c.numWorkers)
+	bufferSize := c.numWorkers
+	if bufferSize == -1 {
+		bufferSize = 0
+	}
+
+	batches = make(chan []*datastore.Key, bufferSize)
 	query = query.KeysOnly()
 
 	errGroup.Go(func() (err error) {
