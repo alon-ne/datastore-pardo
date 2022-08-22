@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
-	"log"
 	"sync/atomic"
 )
 
@@ -60,7 +59,7 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,
 	for err == nil {
 		var key *datastore.Key
 		key, err = it.Next(nil)
-		log.Printf("got %v,%v,%v", batchIndex, key, err)
+		//log.Printf("got %v,%v,%v", batchIndex, key, err)
 
 		batchSize := c.batchSize
 		if err == nil {
@@ -84,7 +83,7 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,
 		goIndex := batchIndex
 		goBatch := batch
 		errGroup.Go(func() error {
-			log.Printf("doing %v, %v", goIndex, goBatch)
+			//log.Printf("doing %v, %v", goIndex, goBatch)
 			if err := do(ctx, goIndex, goBatch); err != nil {
 				return err
 			}
