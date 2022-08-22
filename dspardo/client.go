@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 )
 
-type ParDoKeysFunc func(ctx context.Context, batchIndex int, keys []*datastore.Key) error
+type ParDoKeysFunc func(ctx context.Context, batchIndex int, batch []*datastore.Key) error
 type ProgressCallback func(ctx context.Context, processed int)
 
 //goland:noinspection GoUnusedConst
@@ -43,25 +43,22 @@ func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, prog
 	)
 }
 
-func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,
-	do ParDoKeysFunc, progress ProgressCallback) error {
+func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParDoKeysFunc, progress ProgressCallback) (err error) {
 	var errGroup errgroup.Group
 	errGroup.SetLimit(c.numWorkers)
 
-	query = query.KeysOnly()
-
-	it := c.Client.Run(ctx, query)
 	batch := c.newBatch()
-	var err error
-	var batchIndex int
-	var entitiesProcessed int64
 
+	var i int
+	var entitiesProcessed int64
+	batchSize := c.batchSize
+
+	it := c.Client.Run(ctx, query.KeysOnly())
 	for err == nil {
 		var key *datastore.Key
 		key, err = it.Next(nil)
-		//log.Printf("got %v,%v,%v", batchIndex, key, err)
+		//log.Printf("got %v,%v,%v", i, key, err)
 
-		batchSize := c.batchSize
 		if err == nil {
 			batch = append(batch, key)
 		} else if errors.Is(err, iterator.Done) {
@@ -80,23 +77,22 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,
 		default:
 		}
 
-		goIndex := batchIndex
-		goBatch := batch
+		batchIndex, readyBatch := i, batch
 		errGroup.Go(func() error {
-			//log.Printf("doing %v, %v", goIndex, goBatch)
-			if err := do(ctx, goIndex, goBatch); err != nil {
+			//log.Printf("doing %v, %v", batchIndex, readyBatch)
+			if err := do(ctx, batchIndex, readyBatch); err != nil {
 				return err
 			}
 
-			entitiesProcessed := atomic.AddInt64(&entitiesProcessed, int64(len(goBatch)))
+			entitiesProcessed := atomic.AddInt64(&entitiesProcessed, int64(len(readyBatch)))
 			progress(ctx, int(entitiesProcessed))
-
 			return nil
 		})
 
+		i++
 		batch = c.newBatch()
-		batchIndex++
 	}
+
 	if errors.Is(err, iterator.Done) {
 		err = nil
 	}

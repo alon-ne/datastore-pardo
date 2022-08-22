@@ -198,7 +198,7 @@ func putTestEntities(ctx context.Context, n int, numEntities int) (allKeys sorta
 		keys = append(keys, testKey())
 		entities = append(entities, Entity{N: n, S: "text"})
 		if len(keys) == 500 || i == numEntities-1 {
-			fmt.Printf("Putting %v test entities:%v...\n", len(keys), entities)
+			fmt.Printf("Putting %v test entities:...\n", len(keys))
 			_, err := dsClient.PutMulti(ctx, keys, entities)
 			lang.PanicOnError(err)
 			allKeys = append(allKeys, keys...)
