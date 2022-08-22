@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
+	"log"
 	"sync/atomic"
 )
 
-type ParDoKeysFunc func(ctx context.Context, worker int, keys []*datastore.Key) error
-type ParDoEntitiesFunc func(ctx context.Context, worker int, entities []datastore.PropertyList) error
+type ParDoKeysFunc func(ctx context.Context, batchIndex int, keys []*datastore.Key) error
 type ProgressCallback func(ctx context.Context, processed int)
 
 //goland:noinspection GoUnusedConst
@@ -31,22 +31,9 @@ func New(dsClient *datastore.Client, numWorkers, batchSize int) *Client {
 	}
 }
 
-func (c *Client) Count(ctx context.Context, query *datastore.Query) (count int, err error) {
-	var count64 int64
-	err = c.ParDoQuery(ctx, query,
-		func(_ context.Context, _ int, keys []*datastore.Key) error {
-			atomic.AddInt64(&count64, int64(len(keys)))
-			return nil
-		},
-		func(ctx context.Context, processed int) {},
-	)
-	count = int(count64)
-	return
-}
-
 func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, progressFormat string) error {
 	return c.ParDoQuery(ctx, query,
-		func(ctx context.Context, worker int, keys []*datastore.Key) error {
+		func(ctx context.Context, _ int, keys []*datastore.Key) error {
 			return c.DeleteMulti(ctx, keys)
 		},
 		func(_ context.Context, processed int) {
@@ -59,75 +46,65 @@ func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, prog
 
 func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query,
 	do ParDoKeysFunc, progress ProgressCallback) error {
-	errGroup, errCtx := errgroup.WithContext(ctx)
+	var errGroup errgroup.Group
+	errGroup.SetLimit(c.numWorkers)
 
-	batches := make(chan []*datastore.Key)
 	query = query.KeysOnly()
 
-	errGroup.Go(func() (err error) {
-		it := c.Client.Run(errCtx, query)
-		keys := c.makeKeys()
+	it := c.Client.Run(ctx, query)
+	batch := c.newBatch()
+	var err error
+	var batchIndex int
+	var entitiesProcessed int64
 
-		for err == nil {
-			var key *datastore.Key
-			key, err = it.Next(nil)
+	for err == nil {
+		var key *datastore.Key
+		key, err = it.Next(nil)
+		log.Printf("got %v,%v,%v", batchIndex, key, err)
 
-			batchSize := c.batchSize
+		batchSize := c.batchSize
+		if err == nil {
+			batch = append(batch, key)
+		} else if errors.Is(err, iterator.Done) {
+			batchSize = len(batch)
+		}
+
+		if len(batch) < batchSize || batchSize == 0 {
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
 			if err == nil {
-				keys = append(keys, key)
-			} else if errors.Is(err, iterator.Done) {
-				batchSize = len(keys)
+				err = ctx.Err()
 			}
-
-			if len(keys) < batchSize || batchSize == 0 {
-				continue
-			}
-
-			select {
-			case batches <- keys:
-				keys = c.makeKeys()
-			case <-errCtx.Done():
-				if err == nil {
-					err = errCtx.Err()
-				}
-			}
-		}
-		close(batches)
-		if errors.Is(err, iterator.Done) {
-			err = nil
+		default:
 		}
 
-		return
-	})
-	c.startWorkers(ctx, errGroup, do, progress, batches)
+		goIndex := batchIndex
+		goBatch := batch
+		errGroup.Go(func() error {
+			log.Printf("doing %v, %v", goIndex, goBatch)
+			if err := do(ctx, goIndex, goBatch); err != nil {
+				return err
+			}
+
+			entitiesProcessed := atomic.AddInt64(&entitiesProcessed, int64(len(goBatch)))
+			progress(ctx, int(entitiesProcessed))
+
+			return nil
+		})
+
+		batch = c.newBatch()
+		batchIndex++
+	}
+	if errors.Is(err, iterator.Done) {
+		err = nil
+	}
 
 	return errGroup.Wait()
 }
 
-func (c *Client) startWorkers(ctx context.Context, errGroup *errgroup.Group, do ParDoKeysFunc, progress ProgressCallback, batches chan []*datastore.Key) {
-	var entitiesProcessed int64
-	for i := 0; i < c.numWorkers; i++ {
-		worker := i
-		errGroup.Go(func() error {
-			for batch := range batches {
-				if err := do(ctx, worker, batch); err != nil {
-					return err
-				}
-				entitiesProcessed := atomic.AddInt64(&entitiesProcessed, int64(len(batch)))
-				progress(ctx, int(entitiesProcessed))
-
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				default:
-				}
-			}
-			return nil
-		})
-	}
-
-}
-
-func (c *Client) makeKeys() []*datastore.Key {
+func (c *Client) newBatch() []*datastore.Key {
 	return make([]*datastore.Key, 0, c.batchSize)
 }
