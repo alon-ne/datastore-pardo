@@ -126,11 +126,16 @@ func testParDoQuery(t *testing.T, ctx context.Context, numWorkers int, batchSize
 	batches := make(chan Batch)
 
 	var allKeys []*datastore.Key
-	var collectKeys errgroup.Group
-	collectKeys.Go(func() error {
+	var collectResults errgroup.Group
+
+	expectedBatches := entities / batchSize
+	batchIndexes := map[int]struct{}{}
+
+	collectResults.Go(func() error {
 		for batch := range batches {
 			//log.Printf("appending %v", batch)
 			allKeys = append(allKeys, batch.Keys...)
+			batchIndexes[batch.Index] = struct{}{}
 		}
 		return nil
 	})
@@ -151,8 +156,11 @@ func testParDoQuery(t *testing.T, ctx context.Context, numWorkers int, batchSize
 	close(batches)
 	require.NoError(t, err)
 
-	_ = collectKeys.Wait()
+	_ = collectResults.Wait()
 
+	for i := 0; i < expectedBatches; i++ {
+		assert.Contains(t, batchIndexes, i)
+	}
 	assert.EqualValues(t, entities, totalProcessed)
 	assert.Equal(t, entities, len(allKeys))
 	assert.ElementsMatch(t, testEntityKeys[:entities], allKeys)
