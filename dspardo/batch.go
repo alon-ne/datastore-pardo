@@ -15,3 +15,9 @@ func (b *Batch) Add(key *datastore.Key) {
 func (b *Batch) Len() int {
 	return len(b.Keys)
 }
+
+func (b *Batch) Finalize(it *datastore.Iterator) (readyBatch Batch, err error) {
+	readyBatch = *b
+	readyBatch.Cursor, err = it.Cursor()
+	return
+}

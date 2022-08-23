@@ -48,15 +48,13 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	errGroup.SetLimit(c.numWorkers)
 
 	batch := c.newBatch(0)
-
-	var entitiesProcessed int64
+	entitiesProcessed := int64(0)
 	batchSize := c.batchSize
-
 	it := c.Client.Run(ctx, query.KeysOnly())
 	for err == nil {
 		var key *datastore.Key
 		key, err = it.Next(nil)
-		//log.Printf("got %v,%v,%v", batch.Index, key, err)
+		//log.Printf("got %v", batch, err)
 
 		if err == nil {
 			batch.Add(key)
@@ -76,11 +74,11 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		default:
 		}
 
-		batch.Cursor, err = it.Cursor()
+		readyBatch, err := batch.Finalize(it)
 		if err != nil {
-			return
+			return err
 		}
-		readyBatch := batch
+
 		errGroup.Go(func() error {
 			//log.Printf("doing %v", readyBatch)
 			if err := do(ctx, readyBatch); err != nil {
@@ -99,7 +97,11 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		err = nil
 	}
 
-	return errGroup.Wait()
+	if err == nil {
+		err = errGroup.Wait()
+	}
+
+	return
 }
 
 func (c *Client) newBatch(index int) Batch {
