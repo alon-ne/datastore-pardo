@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 )
 
-type ParDoKeysFunc func(ctx context.Context, batchIndex int, batch []*datastore.Key) error
+type ParDoKeysFunc func(ctx context.Context, batch Batch) error
 type ProgressCallback func(ctx context.Context, processed int)
 
 //goland:noinspection GoUnusedConst
@@ -32,8 +32,8 @@ func New(dsClient *datastore.Client, numWorkers, batchSize int) *Client {
 
 func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, progressFormat string) error {
 	return c.ParDoQuery(ctx, query,
-		func(ctx context.Context, _ int, keys []*datastore.Key) error {
-			return c.DeleteMulti(ctx, keys)
+		func(ctx context.Context, batch Batch) error {
+			return c.DeleteMulti(ctx, batch.Keys)
 		},
 		func(_ context.Context, processed int) {
 			if progressFormat != "" {
@@ -47,9 +47,8 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	var errGroup errgroup.Group
 	errGroup.SetLimit(c.numWorkers)
 
-	batch := c.newBatch()
+	batch := c.newBatch(0)
 
-	var i int
 	var entitiesProcessed int64
 	batchSize := c.batchSize
 
@@ -60,12 +59,12 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		//log.Printf("got %v,%v,%v", i, key, err)
 
 		if err == nil {
-			batch = append(batch, key)
+			batch.Add(key)
 		} else if errors.Is(err, iterator.Done) {
-			batchSize = len(batch)
+			batchSize = batch.Len()
 		}
 
-		if len(batch) < batchSize || batchSize == 0 {
+		if batch.Len() < batchSize || batchSize == 0 {
 			continue
 		}
 
@@ -77,20 +76,23 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		default:
 		}
 
-		batchIndex, readyBatch := i, batch
+		batch.Cursor, err = it.Cursor()
+		if err != nil {
+			return
+		}
+		readyBatch := batch
 		errGroup.Go(func() error {
 			//log.Printf("doing %v, %v", batchIndex, readyBatch)
-			if err := do(ctx, batchIndex, readyBatch); err != nil {
+			if err := do(ctx, readyBatch); err != nil {
 				return err
 			}
 
-			entitiesProcessed := atomic.AddInt64(&entitiesProcessed, int64(len(readyBatch)))
+			entitiesProcessed := atomic.AddInt64(&entitiesProcessed, int64(readyBatch.Len()))
 			progress(ctx, int(entitiesProcessed))
 			return nil
 		})
 
-		i++
-		batch = c.newBatch()
+		batch = c.newBatch(batch.Index + 1)
 	}
 
 	if errors.Is(err, iterator.Done) {
@@ -100,6 +102,6 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	return errGroup.Wait()
 }
 
-func (c *Client) newBatch() []*datastore.Key {
-	return make([]*datastore.Key, 0, c.batchSize)
+func (c *Client) newBatch(index int) Batch {
+	return Batch{Index: index, Keys: make([]*datastore.Key, 0, c.batchSize)}
 }

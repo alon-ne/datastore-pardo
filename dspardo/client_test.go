@@ -123,14 +123,14 @@ func TestClient_DeleteByQuery(t *testing.T) {
 
 func testParDoQuery(t *testing.T, ctx context.Context, numWorkers int, batchSize int, entities int) {
 	var totalProcessed int64
-	batches := make(chan []*datastore.Key)
+	batches := make(chan Batch)
 
 	var allKeys []*datastore.Key
 	var collectKeys errgroup.Group
 	collectKeys.Go(func() error {
 		for batch := range batches {
 			//log.Printf("appending %v", batch)
-			allKeys = append(allKeys, batch...)
+			allKeys = append(allKeys, batch.Keys...)
 		}
 		return nil
 	})
@@ -139,7 +139,7 @@ func testParDoQuery(t *testing.T, ctx context.Context, numWorkers int, batchSize
 	err := client.ParDoQuery(
 		ctx,
 		datastore.NewQuery(kind).Order("__key__").Limit(entities),
-		func(ctx context.Context, batchIndex int, batch []*datastore.Key) error {
+		func(ctx context.Context, batch Batch) error {
 			//log.Printf("sending %v,%v", batchIndex, batch)
 			batches <- batch
 			return nil
