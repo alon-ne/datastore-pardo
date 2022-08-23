@@ -34,20 +34,6 @@ type Entity struct {
 	S string `datastore:"s"`
 }
 
-type sortableKeys []*datastore.Key
-
-func (s sortableKeys) Len() int {
-	return len(s)
-}
-
-func (s sortableKeys) Less(i, j int) bool {
-	return s[i].Name < s[j].Name
-}
-
-func (s sortableKeys) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	var err error
@@ -93,35 +79,31 @@ func Test_ParDoGetMulti(t *testing.T) {
 	assert.EqualValues(t, numEntities, sum)
 }
 
-func Test_ParDoQuery_4_workers_1000_batch(t *testing.T) {
-	testParDoQuery(t, context.Background(), 4, 1000, numEntities)
+func TestClient_ParDoQuery_4_workers_1000_batch(t *testing.T) {
+	testParDoQuery(t, 4, 1000, numEntities)
 }
 
-func Test_ParDoQuery_1_worker_1000_batch(t *testing.T) {
-	testParDoQuery(t, context.Background(), 1, 1000, numEntities)
+func TestClient_ParDoQuery_1_worker_1000_batch(t *testing.T) {
+	testParDoQuery(t, 1, 1000, numEntities)
 }
 
-func Test_ParDoQuery_1_worker_1_batch(t *testing.T) {
-	testParDoQuery(t, context.Background(), 1, 1, 4)
+func TestClient_ParDoQuery_1_worker_1_batch(t *testing.T) {
+	testParDoQuery(t, 1, 1, 4)
 }
 
 func TestClient_DeleteByQuery(t *testing.T) {
-	keys := putTestEntities(context.Background(), 2, 2000)
-	client := New(dsClient, 16, 60)
-	err := client.DeleteByQuery(context.Background(),
-		datastore.NewQuery(kind).FilterField("n", "=", 2).Order("__key__"),
-		"deleted %v entities",
-	)
+	putTestEntities(context.Background(), 2, 2000)
+	client := New(dsClient, 16, 500)
+	query := datastore.NewQuery(kind).FilterField("n", "=", 2).Order("__key__")
+	err := client.DeleteByQuery(context.Background(), query, "deleted %v entities")
 	require.NoError(t, err)
 
-	for _, k := range keys {
-		var entity Entity
-		err = dsClient.Get(context.Background(), k, &entity)
-		require.ErrorIs(t, err, datastore.ErrNoSuchEntity)
-	}
+	notDeleted, err := client.Count(context.Background(), query.Limit(1))
+	require.NoError(t, err)
+	require.Zero(t, notDeleted)
 }
 
-func testParDoQuery(t *testing.T, ctx context.Context, numWorkers int, batchSize int, entities int) {
+func testParDoQuery(t *testing.T, numWorkers int, batchSize int, entities int) {
 	var totalProcessed int64
 	batches := make(chan Batch)
 
@@ -129,8 +111,8 @@ func testParDoQuery(t *testing.T, ctx context.Context, numWorkers int, batchSize
 	var collectResults errgroup.Group
 
 	expectedBatches := entities / batchSize
-	batchIndexes := map[int]struct{}{}
 
+	batchIndexes := map[int]struct{}{}
 	collectResults.Go(func() error {
 		for batch := range batches {
 			//log.Printf("appending %v", batch)
@@ -142,7 +124,7 @@ func testParDoQuery(t *testing.T, ctx context.Context, numWorkers int, batchSize
 
 	client := New(dsClient, numWorkers, batchSize)
 	err := client.ParDoQuery(
-		ctx,
+		context.Background(),
 		datastore.NewQuery(kind).Order("__key__").Limit(entities),
 		func(ctx context.Context, batch Batch) error {
 			//log.Printf("sending %v,%v", batchIndex, batch)
