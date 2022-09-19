@@ -14,7 +14,10 @@ type ParDoKeysFunc func(ctx context.Context, batch Batch) error
 type ProgressCallback func(ctx context.Context, processed int)
 
 //goland:noinspection GoUnusedConst
-const DatastorePutMaxBatchSize = 500
+const (
+	DatastorePutMaxBatchSize = 500
+	UnlimitedWorkers         = -1
+)
 
 type Client struct {
 	*datastore.Client
@@ -23,6 +26,10 @@ type Client struct {
 }
 
 func New(dsClient *datastore.Client, numWorkers, batchSize int) *Client {
+	if numWorkers == 0 {
+		numWorkers = UnlimitedWorkers
+	}
+
 	return &Client{
 		Client:     dsClient,
 		numWorkers: numWorkers,
