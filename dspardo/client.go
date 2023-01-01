@@ -60,7 +60,10 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	it := c.Client.Run(ctx, query.KeysOnly())
 	for err == nil {
 		var key *datastore.Key
-		key, err = it.Next(nil)
+		batch.StartCursor, err = it.Cursor()
+		if err == nil {
+			key, err = it.Next(nil)
+		}
 		//log.Printf("got %v", batch, err)
 
 		if err == nil {

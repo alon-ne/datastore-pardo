@@ -3,9 +3,10 @@ package dspardo
 import "cloud.google.com/go/datastore"
 
 type Batch struct {
-	Index  int
-	Keys   []*datastore.Key
-	Cursor datastore.Cursor
+	Index       int
+	Keys        []*datastore.Key
+	StartCursor datastore.Cursor
+	EndCursor   datastore.Cursor
 }
 
 func (b *Batch) Add(key *datastore.Key) {
@@ -18,6 +19,6 @@ func (b *Batch) Len() int {
 
 func (b *Batch) Finalize(it *datastore.Iterator) (readyBatch Batch, err error) {
 	readyBatch = *b
-	readyBatch.Cursor, err = it.Cursor()
+	readyBatch.EndCursor, err = it.Cursor()
 	return
 }
