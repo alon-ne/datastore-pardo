@@ -52,6 +52,7 @@ func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, prog
 
 func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParDoKeysFunc, progress ProgressCallback) (err error) {
 	var errGroup errgroup.Group
+	//todo: use errGroup with context
 	errGroup.SetLimit(c.numWorkers)
 
 	batch := c.newBatch(0)
