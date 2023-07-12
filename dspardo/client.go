@@ -51,7 +51,8 @@ func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, prog
 }
 
 func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParDoKeysFunc, progress ProgressCallback) (err error) {
-	errGroup, ctx := errgroup.WithContext(ctx)
+	errGroup, errGroupCtx := errgroup.WithContext(ctx)
+	errGroup.SetLimit(c.numWorkers)
 
 	batch := c.newBatch(0)
 	entitiesProcessed := int64(0)
@@ -76,9 +77,9 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		}
 
 		select {
-		case <-ctx.Done():
+		case <-errGroupCtx.Done():
 			if err == nil {
-				err = ctx.Err()
+				err = errGroupCtx.Err()
 			}
 		default:
 		}
