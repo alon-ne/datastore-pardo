@@ -60,12 +60,7 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	it := c.Client.Run(ctx, query.KeysOnly())
 	for err == nil {
 		var key *datastore.Key
-		batch.StartCursor, err = it.Cursor()
-		if err == nil {
-			key, err = it.Next(nil)
-		}
-		//log.Printf("got %v", batch, err)
-
+		key, err = it.Next(nil)
 		if err == nil {
 			batch.Add(key)
 		} else if errors.Is(err, iterator.Done) {
@@ -84,13 +79,12 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		default:
 		}
 
-		readyBatch, err := batch.Finalize(it)
-		if err != nil {
-			return err
+		readyBatch, finalizeErr := batch.Finalize(it)
+		if finalizeErr != nil {
+			return finalizeErr
 		}
 
 		errGroup.Go(func() error {
-			//log.Printf("doing %v", readyBatch)
 			if err := do(ctx, readyBatch); err != nil {
 				return err
 			}
