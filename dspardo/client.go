@@ -109,5 +109,5 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 }
 
 func (c *Client) newBatch(index int) Batch {
-	return Batch{Index: index, Keys: nil}
+	return Batch{Index: index, Keys: make([]*datastore.Key, 0, c.batchSize)}
 }
