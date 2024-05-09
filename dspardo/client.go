@@ -39,19 +39,6 @@ func New(dsClient *datastore.Client, numWorkers, batchSize int, cursorsEnabled b
 	}
 }
 
-func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, progressFormat string) error {
-	return c.ParDoQuery(ctx, query,
-		func(ctx context.Context, batch Batch) error {
-			return c.DeleteMulti(ctx, batch.Keys)
-		},
-		func(_ context.Context, processed int) {
-			if progressFormat != "" {
-				fmt.Printf(progressFormat+"\n", processed)
-			}
-		},
-	)
-}
-
 func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParDoKeysFunc, progress ProgressCallback) (err error) {
 	errGroup, errGroupCtx := errgroup.WithContext(ctx)
 	errGroup.SetLimit(c.numWorkers)
@@ -63,12 +50,10 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	batch := c.newBatch(0)
 
 	for err == nil {
-		key, err = it.Next(nil)
-		if err == nil {
-			batch.Add(key)
-		} else if errors.Is(err, iterator.Done) {
-			batchSize = batch.Len()
+		if key, err = it.Next(nil); err != nil {
+			break
 		}
+		batch.Add(key)
 
 		if batch.Len() < batchSize || batchSize == 0 {
 			continue
@@ -76,9 +61,7 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 
 		select {
 		case <-errGroupCtx.Done():
-			if err == nil {
-				err = errGroupCtx.Err()
-			}
+			err = errGroupCtx.Err()
 		default:
 		}
 
@@ -91,27 +74,31 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		}
 
 		errGroup.Go(func() error {
-			if err := do(ctx, readyBatch); err != nil {
-				return err
-			}
-
-			entitiesProcessed := atomic.AddInt64(&entitiesProcessed, int64(readyBatch.Len()))
-			progress(ctx, int(entitiesProcessed))
-			return nil
+			defer progress(ctx, int(atomic.AddInt64(&entitiesProcessed, int64(readyBatch.Len()))))
+			return do(ctx, readyBatch)
 		})
 
 		batch = c.newBatch(batch.Index + 1)
 	}
 
-	if errors.Is(err, iterator.Done) {
-		err = nil
+	if err != nil && !errors.Is(err, iterator.Done) {
+		return
 	}
 
-	if err == nil {
-		err = errGroup.Wait()
-	}
+	return errGroup.Wait()
+}
 
-	return
+func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, progressFormat string) error {
+	return c.ParDoQuery(ctx, query,
+		func(ctx context.Context, batch Batch) error {
+			return c.DeleteMulti(ctx, batch.Keys)
+		},
+		func(_ context.Context, processed int) {
+			if progressFormat != "" {
+				fmt.Printf(progressFormat+"\n", processed)
+			}
+		},
+	)
 }
 
 func (c *Client) newBatch(index int) Batch {
