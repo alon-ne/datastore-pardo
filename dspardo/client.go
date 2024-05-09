@@ -21,19 +21,21 @@ const (
 
 type Client struct {
 	*datastore.Client
-	numWorkers int
-	batchSize  int
+	numWorkers     int
+	maxBatchSize   int
+	cursorsEnabled bool
 }
 
-func New(dsClient *datastore.Client, numWorkers, batchSize int) *Client {
+func New(dsClient *datastore.Client, numWorkers, batchSize int, cursorsEnabled bool) *Client {
 	if numWorkers == 0 {
 		numWorkers = UnlimitedWorkers
 	}
 
 	return &Client{
-		Client:     dsClient,
-		numWorkers: numWorkers,
-		batchSize:  batchSize,
+		Client:         dsClient,
+		numWorkers:     numWorkers,
+		maxBatchSize:   batchSize,
+		cursorsEnabled: cursorsEnabled,
 	}
 }
 
@@ -54,12 +56,13 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	errGroup, errGroupCtx := errgroup.WithContext(ctx)
 	errGroup.SetLimit(c.numWorkers)
 
-	batch := c.newBatch(0)
-	entitiesProcessed := int64(0)
-	batchSize := c.batchSize
+	var entitiesProcessed int64
+	var key *datastore.Key
+	batchSize := c.maxBatchSize
 	it := c.Client.Run(ctx, query.KeysOnly())
+	batch := c.newBatch(0)
+
 	for err == nil {
-		var key *datastore.Key
 		key, err = it.Next(nil)
 		if err == nil {
 			batch.Add(key)
@@ -79,9 +82,12 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		default:
 		}
 
-		readyBatch, finalizeErr := batch.Finalize(it)
-		if finalizeErr != nil {
-			return finalizeErr
+		readyBatch := batch
+		if c.cursorsEnabled {
+			var cursorErr error
+			if readyBatch.EndCursor, cursorErr = it.Cursor(); cursorErr != nil {
+				return cursorErr
+			}
 		}
 
 		errGroup.Go(func() error {
@@ -109,5 +115,5 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 }
 
 func (c *Client) newBatch(index int) Batch {
-	return Batch{Index: index, Keys: make([]*datastore.Key, 0, c.batchSize)}
+	return Batch{Index: index, Keys: make([]*datastore.Key, 0, c.maxBatchSize)}
 }
