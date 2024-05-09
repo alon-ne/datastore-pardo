@@ -40,14 +40,15 @@ func TestMain(m *testing.M) {
 	dsClient, err = datastore.NewClient(ctx, "dspardo")
 	lang.PanicOnError(err)
 
-	resp, err := http.Post("http://"+datastoreEmulatorHost+"/reset", "", nil)
-	lang.PanicOnError(err)
-	if resp.StatusCode != http.StatusOK {
-		panic("response from datastore emulator: " + resp.Status)
+	if datastoreEmulatorHost != "" {
+		resp, err := http.Post("http://"+datastoreEmulatorHost+"/reset", "", nil)
+		lang.PanicOnError(err)
+		if resp.StatusCode != http.StatusOK {
+			panic("response from datastore emulator: " + resp.Status)
+		}
+		validateAllEntitiesDeleted(ctx)
+		testEntityKeys = putTestEntities(ctx, 1, numEntities)
 	}
-	validateAllEntitiesDeleted(ctx)
-
-	testEntityKeys = putTestEntities(ctx, 1, numEntities)
 
 	m.Run()
 	os.Exit(0)
@@ -58,7 +59,7 @@ func Test_ParDoGetMulti(t *testing.T) {
 	numWorkers := 4
 	batchSize := 79
 
-	client := New(dsClient, numWorkers, batchSize)
+	client := New(dsClient, numWorkers, batchSize, false)
 
 	keys, err := dsClient.GetAll(ctx, testEntitiesQuery(), nil)
 	require.NoError(t, err)
@@ -93,7 +94,7 @@ func TestClient_ParDoQuery_1_worker_1_batch(t *testing.T) {
 
 func TestClient_DeleteByQuery(t *testing.T) {
 	putTestEntities(context.Background(), 2, 2000)
-	client := New(dsClient, 16, 500)
+	client := New(dsClient, 16, 500, false)
 	query := datastore.NewQuery(kind).FilterField("n", "=", 2).Order("__key__")
 	err := client.DeleteByQuery(context.Background(), query, "deleted %v entities")
 	require.NoError(t, err)
@@ -122,7 +123,7 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, entities int) {
 		return nil
 	})
 
-	client := New(dsClient, numWorkers, batchSize)
+	client := New(dsClient, numWorkers, batchSize, true)
 	err := client.ParDoQuery(
 		context.Background(),
 		datastore.NewQuery(kind).Order("__key__").Limit(entities),

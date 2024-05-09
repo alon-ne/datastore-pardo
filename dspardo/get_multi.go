@@ -68,7 +68,7 @@ func (p *parDoGetMulti[T]) startConsumers(ctx context.Context) *errgroup.Group {
 
 func (p *parDoGetMulti[T]) sendBatches(ctx context.Context) error {
 	var err error
-	batchSize := p.client.batchSize
+	batchSize := p.client.maxBatchSize
 	for offset := 0; offset < len(p.keys) && err == nil; offset += batchSize {
 		remaining := len(p.keys) - offset
 		if batchSize > remaining {
