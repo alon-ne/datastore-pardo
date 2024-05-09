@@ -39,12 +39,14 @@ func New(dsClient *datastore.Client, numWorkers, batchSize int, cursorsEnabled b
 	}
 }
 
-func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParDoKeysFunc, progress ProgressCallback) (err error) {
+func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParDoKeysFunc, progress ProgressCallback) error {
+	var entitiesProcessed int64
+	var key *datastore.Key
+	var err error
+
 	errGroup, errGroupCtx := errgroup.WithContext(ctx)
 	errGroup.SetLimit(c.numWorkers)
 
-	var entitiesProcessed int64
-	var key *datastore.Key
 	batchSize := c.maxBatchSize
 	it := c.Client.Run(ctx, query.KeysOnly())
 	batch := c.newBatch(0)
@@ -82,7 +84,7 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	}
 
 	if err != nil && !errors.Is(err, iterator.Done) {
-		return
+		return err
 	}
 
 	return errGroup.Wait()
