@@ -3,6 +3,7 @@ package dspardo
 import (
 	"cloud.google.com/go/datastore"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/alon-ne/datastore-pardo/lang"
 	"github.com/google/uuid"
@@ -84,6 +85,10 @@ func TestClient_ParDoQuery_4_workers_1000_batch(t *testing.T) {
 	testParDoQuery(t, 4, 1000, numEntities)
 }
 
+func TestClient_ParDoQuery_unlimited_workers_500_batch_4_entities(t *testing.T) {
+	testParDoQuery(t, 4, 500, 4)
+}
+
 func TestClient_ParDoQuery_1_worker_1000_batch(t *testing.T) {
 	testParDoQuery(t, 1, 1000, numEntities)
 }
@@ -104,14 +109,14 @@ func TestClient_DeleteByQuery(t *testing.T) {
 	require.Zero(t, notDeleted)
 }
 
-func testParDoQuery(t *testing.T, numWorkers int, batchSize int, entities int) {
+func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int) {
 	var totalProcessed int64
 	batches := make(chan Batch)
 
 	var allKeys []*datastore.Key
 	var collectResults errgroup.Group
 
-	expectedBatches := entities / batchSize
+	expectedBatches := numEntities / batchSize
 
 	batchIndexes := map[int]struct{}{}
 	collectResults.Go(func() error {
@@ -126,7 +131,7 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, entities int) {
 	client := New(dsClient, numWorkers, batchSize, true)
 	err := client.ParDoQuery(
 		context.Background(),
-		datastore.NewQuery(kind).Order("__key__").Limit(entities),
+		datastore.NewQuery(kind).Order("__key__").Limit(numEntities),
 		func(ctx context.Context, batch Batch) error {
 			//log.Printf("sending %v,%v", batchIndex, batch)
 			batches <- batch
@@ -144,9 +149,10 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, entities int) {
 	for i := 0; i < expectedBatches; i++ {
 		assert.Contains(t, batchIndexes, i)
 	}
-	assert.EqualValues(t, entities, totalProcessed)
-	assert.Equal(t, entities, len(allKeys))
-	assert.ElementsMatch(t, testEntityKeys[:entities], allKeys)
+	assert.EqualValues(t, numEntities, totalProcessed)
+	assert.Equal(t, numEntities, len(allKeys))
+	expectedKeys := testEntityKeys[:numEntities]
+	assert.ElementsMatch(t, expectedKeys, allKeys, "expected:\t%v\nactual:\t\t%v", expectedKeys, allKeys)
 }
 
 func deleteTestEntities(ctx context.Context) {
@@ -154,7 +160,7 @@ func deleteTestEntities(ctx context.Context) {
 	it := dsClient.Run(ctx, testEntitiesQuery())
 	for {
 		key, err := it.Next(nil)
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		lang.PanicOnError(err)

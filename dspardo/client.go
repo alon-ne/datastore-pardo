@@ -47,17 +47,19 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	errGroup, errGroupCtx := errgroup.WithContext(ctx)
 	errGroup.SetLimit(c.numWorkers)
 
-	batchSize := c.maxBatchSize
+	desiredBatchSize := c.maxBatchSize
 	it := c.Client.Run(ctx, query.KeysOnly())
 	batch := c.newBatch(0)
 
 	for err == nil {
-		if key, err = it.Next(nil); err != nil {
-			break
+		key, err = it.Next(nil)
+		if err == nil {
+			batch.Add(key)
+		} else if errors.Is(err, iterator.Done) {
+			desiredBatchSize = batch.Len()
 		}
-		batch.Add(key)
 
-		if batch.Len() < batchSize || batchSize == 0 {
+		if batch.Len() < desiredBatchSize || desiredBatchSize == 0 {
 			continue
 		}
 
