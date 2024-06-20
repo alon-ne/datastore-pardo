@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
+	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -95,6 +96,68 @@ func TestClient_ParDoQuery_1_worker_1000_batch(t *testing.T) {
 
 func TestClient_ParDoQuery_1_worker_1_batch(t *testing.T) {
 	testParDoQuery(t, 1, 1, 4)
+}
+
+func TestClient_ParDoQuery_1_worker_1_batch_notKeysOnly(t *testing.T) {
+	var batchSize int = 1
+	numEntities := 1
+	var totalProcessed int64
+	batches := make(chan Batch)
+
+	var allKeys []*datastore.Key
+	var allProperties []datastore.PropertyList
+	var collectResults errgroup.Group
+
+	expectedBatches := numEntities / batchSize
+
+	batchIndexes := map[int]struct{}{}
+	collectResults.Go(func() error {
+		for batch := range batches {
+			//log.Printf("appending %v", batch)
+			allKeys = append(allKeys, batch.Keys...)
+			allProperties = append(allProperties, batch.Properties...)
+			batchIndexes[batch.Index] = struct{}{}
+		}
+		return nil
+	})
+
+	client := New(dsClient, 1, batchSize, false)
+	client.KeysOnly = false
+	err := client.ParDoQuery(
+		context.Background(),
+		datastore.NewQuery(kind).Order("__key__").Limit(numEntities),
+		func(ctx context.Context, batch Batch) error {
+			log.Printf("%v got batch %#v", t.Name(), batch)
+			batches <- batch
+			return nil
+		},
+		func(ctx context.Context, processed int) {
+			atomic.StoreInt64(&totalProcessed, int64(processed))
+		},
+	)
+	close(batches)
+	require.NoError(t, err)
+
+	_ = collectResults.Wait()
+
+	for i := 0; i < expectedBatches; i++ {
+		assert.Contains(t, batchIndexes, i)
+	}
+	assert.EqualValues(t, numEntities, totalProcessed)
+	assert.Equal(t, numEntities, len(allKeys))
+	expectedKeys := testEntityKeys[:numEntities]
+	assert.ElementsMatch(t, expectedKeys, allKeys, "expected:\t%v\nactual:\t\t%v", expectedKeys, allKeys)
+	for i := 0; i < numEntities; i++ {
+		//assert.ElementsMatch(t, i, allProperties[i], datastore.PropertyList{{Name: "n", Value: 1}, {Name: "s", Value: "text"}})
+		for _, prop := range allProperties[i] {
+			switch prop.Name {
+			case "n":
+				assert.EqualValues(t, 1, prop.Value)
+			case "s":
+				assert.Equal(t, "text", prop.Value)
+			}
+		}
+	}
 }
 
 func TestClient_DeleteByQuery(t *testing.T) {

@@ -21,6 +21,8 @@ const (
 
 type Client struct {
 	*datastore.Client
+	KeysOnly bool
+
 	numWorkers     int
 	maxBatchSize   int
 	cursorsEnabled bool
@@ -32,6 +34,7 @@ func New(dsClient *datastore.Client, numWorkers, batchSize int, cursorsEnabled b
 	}
 
 	return &Client{
+		KeysOnly:       true,
 		Client:         dsClient,
 		numWorkers:     numWorkers,
 		maxBatchSize:   batchSize,
@@ -48,13 +51,23 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	errGroup.SetLimit(c.numWorkers)
 
 	desiredBatchSize := c.maxBatchSize
-	it := c.Client.Run(ctx, query.KeysOnly())
+	if c.KeysOnly {
+		query = query.KeysOnly()
+	}
+	it := c.Client.Run(ctx, query)
 	batch := c.newBatch(0)
 
 	for err == nil {
-		key, err = it.Next(nil)
+		var properties datastore.PropertyList
+
+		dst := &properties
+		if c.KeysOnly {
+			dst = nil
+		}
+		key, err = it.Next(dst)
 		if err == nil {
-			batch.Add(key)
+			batch.Keys = append(batch.Keys, key)
+			batch.Properties = append(batch.Properties, properties)
 		} else if errors.Is(err, iterator.Done) {
 			desiredBatchSize = batch.Len()
 		}
@@ -106,5 +119,9 @@ func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, prog
 }
 
 func (c *Client) newBatch(index int) Batch {
-	return Batch{Index: index, Keys: make([]*datastore.Key, 0, c.maxBatchSize)}
+	return Batch{
+		Index:      index,
+		Keys:       make([]*datastore.Key, 0, c.maxBatchSize),
+		Properties: make([]datastore.PropertyList, 0, c.maxBatchSize),
+	}
 }
