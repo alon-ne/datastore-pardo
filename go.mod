@@ -1,6 +1,6 @@
 module github.com/alon-ne/datastore-pardo
 
-go 1.22.2
+go 1.23.6
 
 require (
 	cloud.google.com/go/datastore v1.16.0

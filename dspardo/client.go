@@ -42,12 +42,11 @@ func New(dsClient *datastore.Client, numWorkers, batchSize int, cursorsEnabled b
 	}
 }
 
-func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParDoKeysFunc, progress ProgressCallback) error {
+func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParDoKeysFunc, progress ProgressCallback) (err error) {
 	var entitiesProcessed int64
 	var key *datastore.Key
-	var err error
 
-	errGroup, errGroupCtx := errgroup.WithContext(ctx)
+	var errGroup errgroup.Group
 	errGroup.SetLimit(c.numWorkers)
 
 	desiredBatchSize := c.maxBatchSize
@@ -57,18 +56,21 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	it := c.Client.Run(ctx, query)
 	batch := c.newBatch(0)
 
-	for err == nil {
+	var iteratorErr error
+	var cursorErr error
+
+	for iteratorErr == nil {
 		var properties datastore.PropertyList
 
 		dst := &properties
 		if c.KeysOnly {
 			dst = nil
 		}
-		key, err = it.Next(dst)
-		if err == nil {
+		key, iteratorErr = it.Next(dst)
+		if iteratorErr == nil {
 			batch.Keys = append(batch.Keys, key)
 			batch.Properties = append(batch.Properties, properties)
-		} else if errors.Is(err, iterator.Done) {
+		} else if errors.Is(iteratorErr, iterator.Done) {
 			desiredBatchSize = batch.Len()
 		}
 
@@ -76,20 +78,13 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 			continue
 		}
 
-		select {
-		case <-errGroupCtx.Done():
-			err = errGroupCtx.Err()
-		default:
-		}
-
-		readyBatch := batch
 		if c.cursorsEnabled {
-			var cursorErr error
-			if readyBatch.EndCursor, cursorErr = it.Cursor(); cursorErr != nil {
-				return cursorErr
+			if batch.EndCursor, cursorErr = it.Cursor(); cursorErr != nil {
+				break
 			}
 		}
 
+		readyBatch := batch
 		errGroup.Go(func() error {
 			defer progress(ctx, int(atomic.AddInt64(&entitiesProcessed, int64(readyBatch.Len()))))
 			return do(ctx, readyBatch)
@@ -98,11 +93,19 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		batch = c.newBatch(batch.Index + 1)
 	}
 
-	if err != nil && !errors.Is(err, iterator.Done) {
-		return err
+	if errGroupErr := errGroup.Wait(); errGroupErr != nil {
+		return errGroupErr
 	}
 
-	return errGroup.Wait()
+	if iteratorErr != nil && !errors.Is(iteratorErr, iterator.Done) {
+		return iteratorErr
+	}
+
+	if cursorErr != nil {
+		return cursorErr
+	}
+
+	return nil
 }
 
 func (c *Client) DeleteByQuery(ctx context.Context, query *datastore.Query, progressFormat string) error {

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/api/iterator"
 	"log"
 	"net/http"
 	"os"
@@ -83,19 +82,23 @@ func Test_ParDoGetMulti(t *testing.T) {
 }
 
 func TestClient_ParDoQuery_4_workers_1000_batch(t *testing.T) {
-	testParDoQuery(t, 4, 1000, numEntities)
+	testParDoQuery(t, 4, 1000, numEntities, 0)
+}
+
+func TestClient_ParDoQuery_4_workers_1000_batch_withErrors(t *testing.T) {
+	testParDoQuery(t, 4, 1000, numEntities, 10)
 }
 
 func TestClient_ParDoQuery_unlimited_workers_500_batch_4_entities(t *testing.T) {
-	testParDoQuery(t, 4, 500, 4)
+	testParDoQuery(t, 4, 500, 4, 0)
 }
 
 func TestClient_ParDoQuery_1_worker_1000_batch(t *testing.T) {
-	testParDoQuery(t, 1, 1000, numEntities)
+	testParDoQuery(t, 1, 1000, numEntities, 0)
 }
 
 func TestClient_ParDoQuery_1_worker_1_batch(t *testing.T) {
-	testParDoQuery(t, 1, 1, 4)
+	testParDoQuery(t, 1, 1, 4, 0)
 }
 
 func TestClient_ParDoQuery_1_worker_1_batch_notKeysOnly(t *testing.T) {
@@ -167,12 +170,13 @@ func TestClient_DeleteByQuery(t *testing.T) {
 	err := client.DeleteByQuery(context.Background(), query, "deleted %v entities")
 	require.NoError(t, err)
 
+	//goland:noinspection GoDeprecation
 	notDeleted, err := client.Count(context.Background(), query.Limit(1))
 	require.NoError(t, err)
 	require.Zero(t, notDeleted)
 }
 
-func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int) {
+func testParDoQuery(t *testing.T, numWorkers, batchSize, numEntities, errorsInterval int) {
 	var totalProcessed int64
 	batches := make(chan Batch)
 
@@ -191,6 +195,8 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int
 		return nil
 	})
 
+	testError := errors.New("test error")
+
 	client := New(dsClient, numWorkers, batchSize, true)
 	err := client.ParDoQuery(
 		context.Background(),
@@ -198,6 +204,9 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int
 		func(ctx context.Context, batch Batch) error {
 			//log.Printf("sending %v,%v", batchIndex, batch)
 			batches <- batch
+			if errorsInterval != 0 && batch.Index%errorsInterval == 0 {
+				return testError
+			}
 			return nil
 		},
 		func(ctx context.Context, processed int) {
@@ -205,6 +214,9 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int
 		},
 	)
 	close(batches)
+	if errors.Is(err, testError) {
+		err = nil
+	}
 	require.NoError(t, err)
 
 	_ = collectResults.Wait()
@@ -218,26 +230,10 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int
 	assert.ElementsMatch(t, expectedKeys, allKeys, "expected:\t%v\nactual:\t\t%v", expectedKeys, allKeys)
 }
 
-func deleteTestEntities(ctx context.Context) {
-	fmt.Printf("Deleting test entities...\n")
-	it := dsClient.Run(ctx, testEntitiesQuery())
-	for {
-		key, err := it.Next(nil)
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		lang.PanicOnError(err)
-		err = dsClient.Delete(ctx, key)
-		lang.PanicOnError(err)
-	}
-
-	validateAllEntitiesDeleted(ctx)
-
-}
-
 func validateAllEntitiesDeleted(ctx context.Context) {
 	query := testEntitiesQuery()
 
+	//goland:noinspection GoDeprecation
 	existingEntities, err := dsClient.Count(ctx, query.Limit(1))
 	lang.PanicOnError(err)
 	if existingEntities > 0 {
