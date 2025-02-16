@@ -78,13 +78,13 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 			continue
 		}
 
-		readyBatch := batch
 		if c.cursorsEnabled {
-			if readyBatch.EndCursor, cursorErr = it.Cursor(); cursorErr != nil {
+			if batch.EndCursor, cursorErr = it.Cursor(); cursorErr != nil {
 				break
 			}
 		}
 
+		readyBatch := batch
 		errGroup.Go(func() error {
 			defer progress(ctx, int(atomic.AddInt64(&entitiesProcessed, int64(readyBatch.Len()))))
 			return do(ctx, readyBatch)
