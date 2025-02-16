@@ -93,8 +93,7 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		batch = c.newBatch(batch.Index + 1)
 	}
 
-	errGroupErr := errGroup.Wait()
-	if errGroupErr != nil {
+	if errGroupErr := errGroup.Wait(); errGroupErr != nil {
 		return errGroupErr
 	}
 
