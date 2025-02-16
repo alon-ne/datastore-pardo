@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/api/iterator"
 	"log"
 	"net/http"
 	"os"
@@ -228,6 +227,16 @@ func testParDoQuery(t *testing.T, numWorkers, batchSize, numEntities, errorsInte
 	assert.Equal(t, numEntities, len(allKeys))
 	expectedKeys := testEntityKeys[:numEntities]
 	assert.ElementsMatch(t, expectedKeys, allKeys, "expected:\t%v\nactual:\t\t%v", expectedKeys, allKeys)
+}
+
+func validateAllEntitiesDeleted(ctx context.Context) {
+	query := testEntitiesQuery()
+
+	existingEntities, err := dsClient.Count(ctx, query.Limit(1))
+	lang.PanicOnError(err)
+	if existingEntities > 0 {
+		panic("not all entities deleted")
+	}
 }
 
 func testEntitiesQuery() *datastore.Query {
