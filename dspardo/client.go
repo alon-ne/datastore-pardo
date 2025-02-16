@@ -47,7 +47,7 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 	var key *datastore.Key
 	var err error
 
-	errGroup, errGroupCtx := errgroup.WithContext(ctx)
+	var errGroup errgroup.Group
 	errGroup.SetLimit(c.numWorkers)
 
 	desiredBatchSize := c.maxBatchSize
@@ -76,12 +76,6 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 			continue
 		}
 
-		select {
-		case <-errGroupCtx.Done():
-			err = errGroupCtx.Err()
-		default:
-		}
-
 		readyBatch := batch
 		if c.cursorsEnabled {
 			var cursorErr error
@@ -98,7 +92,7 @@ func (c *Client) ParDoQuery(ctx context.Context, query *datastore.Query, do ParD
 		batch = c.newBatch(batch.Index + 1)
 	}
 
-	if err != nil && !errors.Is(err, iterator.Done) {
+	if !errors.Is(err, iterator.Done) {
 		return err
 	}
 

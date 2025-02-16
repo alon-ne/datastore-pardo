@@ -83,19 +83,23 @@ func Test_ParDoGetMulti(t *testing.T) {
 }
 
 func TestClient_ParDoQuery_4_workers_1000_batch(t *testing.T) {
-	testParDoQuery(t, 4, 1000, numEntities)
+	testParDoQuery(t, 4, 1000, numEntities, 0)
+}
+
+func TestClient_ParDoQuery_4_workers_1000_batch_withErrors(t *testing.T) {
+	testParDoQuery(t, 4, 1000, numEntities, 10)
 }
 
 func TestClient_ParDoQuery_unlimited_workers_500_batch_4_entities(t *testing.T) {
-	testParDoQuery(t, 4, 500, 4)
+	testParDoQuery(t, 4, 500, 4, 0)
 }
 
 func TestClient_ParDoQuery_1_worker_1000_batch(t *testing.T) {
-	testParDoQuery(t, 1, 1000, numEntities)
+	testParDoQuery(t, 1, 1000, numEntities, 0)
 }
 
 func TestClient_ParDoQuery_1_worker_1_batch(t *testing.T) {
-	testParDoQuery(t, 1, 1, 4)
+	testParDoQuery(t, 1, 1, 4, 0)
 }
 
 func TestClient_ParDoQuery_1_worker_1_batch_notKeysOnly(t *testing.T) {
@@ -172,7 +176,7 @@ func TestClient_DeleteByQuery(t *testing.T) {
 	require.Zero(t, notDeleted)
 }
 
-func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int) {
+func testParDoQuery(t *testing.T, numWorkers, batchSize, numEntities, errorsInterval int) {
 	var totalProcessed int64
 	batches := make(chan Batch)
 
@@ -191,6 +195,8 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int
 		return nil
 	})
 
+	testError := errors.New("test error")
+
 	client := New(dsClient, numWorkers, batchSize, true)
 	err := client.ParDoQuery(
 		context.Background(),
@@ -198,6 +204,9 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int
 		func(ctx context.Context, batch Batch) error {
 			//log.Printf("sending %v,%v", batchIndex, batch)
 			batches <- batch
+			if errorsInterval != 0 && batch.Index%errorsInterval == 0 {
+				return testError
+			}
 			return nil
 		},
 		func(ctx context.Context, processed int) {
@@ -205,6 +214,9 @@ func testParDoQuery(t *testing.T, numWorkers int, batchSize int, numEntities int
 		},
 	)
 	close(batches)
+	if errors.Is(err, testError) {
+		err = nil
+	}
 	require.NoError(t, err)
 
 	_ = collectResults.Wait()
