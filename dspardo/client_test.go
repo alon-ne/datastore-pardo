@@ -230,33 +230,6 @@ func testParDoQuery(t *testing.T, numWorkers, batchSize, numEntities, errorsInte
 	assert.ElementsMatch(t, expectedKeys, allKeys, "expected:\t%v\nactual:\t\t%v", expectedKeys, allKeys)
 }
 
-func deleteTestEntities(ctx context.Context) {
-	fmt.Printf("Deleting test entities...\n")
-	it := dsClient.Run(ctx, testEntitiesQuery())
-	for {
-		key, err := it.Next(nil)
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		lang.PanicOnError(err)
-		err = dsClient.Delete(ctx, key)
-		lang.PanicOnError(err)
-	}
-
-	validateAllEntitiesDeleted(ctx)
-
-}
-
-func validateAllEntitiesDeleted(ctx context.Context) {
-	query := testEntitiesQuery()
-
-	existingEntities, err := dsClient.Count(ctx, query.Limit(1))
-	lang.PanicOnError(err)
-	if existingEntities > 0 {
-		panic("not all entities deleted")
-	}
-}
-
 func testEntitiesQuery() *datastore.Query {
 	return datastore.NewQuery(kind).Ancestor(ancestorKey).KeysOnly()
 }
