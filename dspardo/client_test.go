@@ -170,6 +170,7 @@ func TestClient_DeleteByQuery(t *testing.T) {
 	err := client.DeleteByQuery(context.Background(), query, "deleted %v entities")
 	require.NoError(t, err)
 
+	//goland:noinspection GoDeprecation
 	notDeleted, err := client.Count(context.Background(), query.Limit(1))
 	require.NoError(t, err)
 	require.Zero(t, notDeleted)
@@ -232,6 +233,7 @@ func testParDoQuery(t *testing.T, numWorkers, batchSize, numEntities, errorsInte
 func validateAllEntitiesDeleted(ctx context.Context) {
 	query := testEntitiesQuery()
 
+	//goland:noinspection GoDeprecation
 	existingEntities, err := dsClient.Count(ctx, query.Limit(1))
 	lang.PanicOnError(err)
 	if existingEntities > 0 {
