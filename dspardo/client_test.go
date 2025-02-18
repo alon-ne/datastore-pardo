@@ -214,10 +214,12 @@ func testParDoQuery(t *testing.T, numWorkers, batchSize, numEntities, errorsInte
 		},
 	)
 	close(batches)
-	if errors.Is(err, testError) {
-		err = nil
+
+	if errorsInterval > 0 {
+		require.ErrorIs(t, err, testError)
+	} else {
+		require.NoError(t, err)
 	}
-	require.NoError(t, err)
 
 	_ = collectResults.Wait()
 
