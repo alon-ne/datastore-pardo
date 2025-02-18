@@ -204,7 +204,7 @@ func testParDoQuery(t *testing.T, numWorkers, batchSize, numEntities, errorsInte
 		func(ctx context.Context, batch Batch) error {
 			//log.Printf("sending %v,%v", batchIndex, batch)
 			batches <- batch
-			if errorsInterval != 0 && batch.Index%errorsInterval == 0 {
+			if errorsInterval > 0 && batch.Index%errorsInterval == 0 {
 				return testError
 			}
 			return nil
